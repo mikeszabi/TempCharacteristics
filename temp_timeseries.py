@@ -18,7 +18,7 @@ sheet_url = f'https://docs.google.com/spreadsheets/d/{sheet_id}/edit#gid={sheet_
 csv_export_url = sheet_url.replace('/edit#gid=', '/export?format=csv&gid=')
 
 
-sp_code='1m'
+sp_code='1d'
 conv_gas=10 # 1m3 gas heat power in kWh
 price_gas=1
 price_electric=1
@@ -41,23 +41,31 @@ for i in ind_emeter_change:
 for i in ind_gmeter_change:
     df_meter_data.loc[i+1:,'Gas']+=df_meter_data.iloc[i].MeterageAtChange
 
-#### RESAMPLE
+#### UPSAMPLE 
 
 df_meter_resample_data=df_meter_data.copy()
 
+df_meter_hf=df_meter_data[['Date2','Gas','ElectricIn','ElectricOut','Solar']]
+df_meter_hf=df_meter_hf.set_index('Date2')
 
-df_meter_resample_data=df_meter_data[['Date2','Gas','ElectricIn','ElectricOut','Solar','Water']]
-df_meter_resample_data=df_meter_resample_data.set_index('Date2')
+df_meter_hf=df_meter_hf.resample('6h',label='right',origin='end_day').ffill()
+df_meter_hf=df_meter_hf.interpolate()
+
+df_meter_hfdiff=df_meter_hf-df_meter_hf.shift(1)
 
 
+# fig2, ax2 = plt.subplots()
 
-df_meter_resample_data=df_meter_resample_data.resample(sp_code,origin='end').mean()
-df_meter_resample_data=df_meter_resample_data.interpolate()
+# ax2.plot(df_meter_hf.index,df_meter_hf['ElectricIn'],color='red',label='From GRID')
+# ax2.plot(df_meter_hf['Date2'],df_meter_hf['ElectricIn'],color='blue',label='From GRID')
 
-df_dmeter_resample_data=df_meter_resample_data-df_meter_resample_data.shift(1)
+# fig2, ax2 = plt.subplots()
 
+# ax2.plot(df_meter_hfdiff.index,df_meter_hfdiff['ElectricIn'],color='red',label='From GRID')
+
+##### RESAMPLE diffs
+df_meter_diff=df_meter_hfdiff.resample(sp_code,label='right',origin='end_day').sum()
 
 fig2, ax2 = plt.subplots()
 
-ax2.plot(df_meter_resample_data.index,df_meter_resample_data['ElectricIn'],color='red',label='From GRID')
-ax2.plot(df_meter_data['Date2'],df_meter_data['ElectricIn'],color='blue',label='From GRID')
+ax2.plot(df_meter_diff.index,df_meter_diff['ElectricIn'],color='red',label='From GRID')
