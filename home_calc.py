@@ -3,6 +3,7 @@
 Created on Fri Jan 21 09:12:20 2022
 @author: szabo
 """
+
 #from io import BytesIO
 
 #import requests
@@ -17,104 +18,96 @@ sheet_url = f'https://docs.google.com/spreadsheets/d/{sheet_id}/edit#gid={sheet_
 csv_export_url = sheet_url.replace('/edit#gid=', '/export?format=csv&gid=')
 
 
-sp_code='1w'
+sp_code='1m'
 conv_gas=10 # 1m3 gas heat power in kWh
 price_gas=1
 price_electric=1
 
 ### read google sheet
-df_scale_data=pd.read_csv(csv_export_url,sep=',',error_bad_lines=False)
+df_meter_data=pd.read_csv(csv_export_url,sep=',',error_bad_lines=False)
 # cols=df_scale_data.columns
 
-df_scale_data.columns=['Date','Gas','ElectricIn','ElectricOut','Solar','Water','Change','ScaleAtChange']
+df_meter_data.columns=['Date','Gas','ElectricIn','ElectricOut','Solar','Water','Change','MeterageAtChange']
+df_meter_data['Date2']=pd.to_datetime(df_meter_data['Date'], infer_datetime_format=True)
 
-######################## elektromos fogyasztás
+### spot METER replacement
 
-df_scale_electricity=df_scale_data[df_scale_data['ElectricIn'].notnull()].copy()
+ind_emeter_change=df_meter_data.loc[df_meter_data.loc[:,'Change']=='Elektromos mérőóra csere'].index
+ind_gmeter_change=df_meter_data.loc[df_meter_data.loc[:,'Change']=='Gázmérő csere'].index
 
-#date_handling
-df_scale_electricity['Date2']=pd.to_datetime(df_scale_electricity['Date'], infer_datetime_format=True)
-df_scale_electricity['days']=df_scale_electricity['Date2']-df_scale_electricity['Date2'].shift(1)
+for i in ind_emeter_change:
+    df_meter_data.loc[i+1:,'ElectricIn']+=df_meter_data.iloc[i].MeterageAtChange
 
-df_scale_electricity['hours']=df_scale_electricity['days'].astype('timedelta64[h]')
+for i in ind_gmeter_change:
+    df_meter_data.loc[i+1:,'Gas']+=df_meter_data.iloc[i].MeterageAtChange
 
+#### UPSAMPLE 
 
-# consumption
-df_scale_electricity['d_electric_in']=df_scale_electricity.loc[:,['ElectricIn']]-df_scale_electricity.loc[:,['ElectricIn']].shift(1)
+df_meter_resample_data=df_meter_data.copy()
 
-### handle METER change
-df_scale_electricity.loc[df_scale_electricity.loc[:,'Change'].shift(1)=='Elektromos mérőóra csere',['d_electric_in']]+=df_scale_electricity.loc[df_scale_electricity.loc[:,'Change']=='Elektromos mérőóra csere',['ScaleAtChange']].values
+df_meter_hf=df_meter_data[['Date2','Gas','ElectricIn','ElectricOut','Solar']]
+df_meter_hf=df_meter_hf.set_index('Date2')
 
-df_scale_electricity['d_electric_out']=df_scale_electricity.loc[:,['ElectricOut']]-df_scale_electricity.loc[:,['ElectricOut']].shift(1)
+df_meter_hf=df_meter_hf.resample('30T',label='right',origin='end_day').interpolate()
 
-df_scale_electricity['d_electric_solar']=df_scale_electricity.loc[:,['Solar']]-df_scale_electricity.loc[:,['Solar']].shift(1)
-
-df_scale_electricity.loc[df_scale_electricity['d_electric_out'].isnull(),['d_electric_out']]=0
-df_scale_electricity.loc[df_scale_electricity['d_electric_solar'].isnull(),['d_electric_solar']]=0
-
-# calculated
-df_scale_electricity['d_electric_consumed']=df_scale_electricity['d_electric_in']+df_scale_electricity['d_electric_solar']-df_scale_electricity['d_electric_out']
-df_scale_electricity['d_electric_paid']=df_scale_electricity['d_electric_in']-df_scale_electricity['d_electric_out']
+df_meter_hfdiff=df_meter_hf-df_meter_hf.shift(1)
 
 
-df_scale_electricity['d_electric_in_perhour']=df_scale_electricity['d_electric_in']/df_scale_electricity['hours']
-df_scale_electricity['d_electric_out_perhour']=df_scale_electricity['d_electric_out']/df_scale_electricity['hours']
-df_scale_electricity['d_electric_solar_perhour']=df_scale_electricity['d_electric_solar']/df_scale_electricity['hours']
-df_scale_electricity['d_electric_consumed_perhour']=df_scale_electricity['d_electric_consumed']/df_scale_electricity['hours']
-df_scale_electricity['d_electric_paid_perhour']=df_scale_electricity['d_electric_paid']/df_scale_electricity['hours']
+# fig2, ax2 = plt.subplots()
 
-### reasample and interpolate
-df_2plot_electricity=df_scale_electricity.copy()
-df_2plot_electricity.index = df_2plot_electricity['Date2']
-df_2plot_electricity=df_2plot_electricity.resample(sp_code).pad()
+# ax2.plot(df_meter_hf.index,df_meter_hf['ElectricIn'],color='red',label='From GRID')
+# ax2.plot(df_meter_hf['Date2'],df_meter_hf['ElectricIn'],color='blue',label='From GRID')
 
-df_2plot_electricity['hours_resample']=(df_2plot_electricity.index.shift(1)-df_2plot_electricity.index).astype('timedelta64[h]')
+# fig2, ax2 = plt.subplots()
 
+# ax2.plot(df_meter_hfdiff.index,df_meter_hfdiff['ElectricIn'],color='red',label='From GRID')
 
-############################ gáz fogyasztás
-
-df_scale_gas=df_scale_data[df_scale_data['Gas'].notnull()].copy()
-
-#date_handling
-df_scale_gas['Date2']=pd.to_datetime(df_scale_gas['Date'], infer_datetime_format=True)
-df_scale_gas['days']=df_scale_gas['Date2']-df_scale_gas['Date2'].shift(1)
-
-df_scale_gas['hours']=df_scale_gas['days'].astype('timedelta64[h]')
-
-# consumption
-df_scale_gas['d_gas']=df_scale_gas.loc[:,['Gas']]-df_scale_gas.loc[:,['Gas']].shift(1)
-
-df_scale_gas.loc[df_scale_gas.loc[:,'Change'].shift(1)=='Gázmérő csere',['d_gas']]+=df_scale_gas.loc[df_scale_gas.loc[:,'Change']=='Gázmérő csere',['ScaleAtChange']].values
-
-df_scale_gas['d_gas_perhour']=df_scale_gas['d_gas']/df_scale_gas['hours']
-
-# reasample and interpolate
-df_2plot_gas=df_scale_gas.copy()
-df_2plot_gas.index = df_2plot_gas['Date2']
-df_2plot_gas=df_2plot_gas.resample(sp_code).pad()
-df_2plot_gas['hours_resample']=(df_2plot_gas.index.shift(1)-df_2plot_gas.index).astype('timedelta64[h]')
+##### RESAMPLE diffs
+df_meter_diff=df_meter_hfdiff.resample(sp_code,label='right',origin='end_day').sum()
+df_meter_diff=df_meter_diff[0:-1]
 
 
+####
 
 # approximate energy plots
 
 fig2, ax2 = plt.subplots()
 
-ax2.plot(df_2plot_electricity.index,df_2plot_electricity['hours_resample']*df_2plot_electricity['d_electric_consumed_perhour'],color='pink',label='Electricity Consumed')
-ax2.plot(df_2plot_electricity.index,df_2plot_electricity['hours_resample']*df_2plot_electricity['d_electric_paid_perhour'],color='orange',label='Electricity Paid')
+#ax2.plot(df_meter_diff.index,df_meter_diff['ElectricIn'],color='yellow',label='Electricity Consumed')
+ax2.plot(df_meter_diff.index,df_meter_diff['ElectricIn']+df_meter_diff['Solar']-df_meter_diff['ElectricOut'],color='orange',label='Electricity Consumed')
+ax2.plot(df_meter_diff.index,conv_gas*df_meter_diff['Gas'],color='black',label='Gas Consumed')
+ax2.plot(df_meter_diff.index,conv_gas*df_meter_diff['Gas']+df_meter_diff['ElectricIn']+df_meter_diff['Solar']-df_meter_diff['ElectricOut'],color='red',label='Energy Consumed')
+ax2.set_ylabel('energy in kWh')
+ax2.set_title('energy consumption on scale : {scale}'.format(scale=sp_code))
 
-ax2.plot(df_2plot_gas.index,price_gas*conv_gas*df_2plot_gas['hours_resample']*df_2plot_gas['d_gas_perhour'],color='black',label='Gas Consumed')
-ax2.plot(df_2plot_gas.index,price_gas*conv_gas*df_2plot_gas['hours_resample']*df_2plot_gas['d_gas_perhour']+df_2plot_electricity['hours_resample']*df_2plot_electricity['d_electric_consumed_perhour'],color='red',label='Energy Consumed')
-
-ax2.legend(loc='upper left')
+ax2.legend(loc='upper right')
 
 # sunpower
 fig2, ax2 = plt.subplots()
 
-ax2.plot(df_2plot_electricity.index,df_2plot_electricity['hours_resample']*df_2plot_electricity['d_electric_in_perhour'],color='red',label='From GRID')
-ax2.plot(df_2plot_electricity.index,df_2plot_electricity['hours_resample']*df_2plot_electricity['d_electric_out_perhour'],color='green',label='To GRID')
-ax2.plot(df_2plot_electricity.index,df_2plot_electricity['hours_resample']*df_2plot_electricity['d_electric_solar_perhour'],color='yellow',label='From PV')
-ax2.plot(df_2plot_electricity.index,df_2plot_electricity['hours_resample']*(df_2plot_electricity['d_electric_in_perhour']-df_2plot_electricity['d_electric_out_perhour']),color='blue',label='Paid')
-
+ax2.plot(df_meter_diff.index,df_meter_diff['ElectricIn'],color='blue',label='From GRID')
+ax2.plot(df_meter_diff.index,df_meter_diff['ElectricOut'],color='green',label='To GRID')
+ax2.plot(df_meter_diff.index,df_meter_diff['Solar'],color='yellow',label='From PV')
+ax2.plot(df_meter_diff.index,df_meter_diff['ElectricIn']-df_meter_diff['ElectricOut'],color='red',label='Paid')
+ax2.set_ylabel('electricity in kWh')
+ax2.set_title('electricity on scale : {scale}'.format(scale=sp_code))
 
 ax2.legend(loc='upper left')
+
+# energiaigény 2022
+
+date_mask=(df_meter_diff.index > '2022-01-01') & (df_meter_diff.index <= '2022-12-31')
+df_meter_diff_masked=df_meter_diff.loc[date_mask]
+
+fig2, ax2 = plt.subplots()
+
+
+#ax2.plot(df_meter_diff.index,df_meter_diff['ElectricIn'],color='yellow',label='Electricity Consumed')
+ax2.plot(df_meter_diff_masked.index,df_meter_diff_masked['ElectricIn']+df_meter_diff_masked['Solar']-df_meter_diff_masked['ElectricOut'],color='orange',label='Electricity Consumed')
+ax2.plot(df_meter_diff_masked.index,df_meter_diff_masked['Solar'],color='yellow',label='From PV')
+ax2.plot(df_meter_diff_masked.index,df_meter_diff_masked['Solar']/2,color='red',label='From SMALLER PV')
+
+ax2.set_ylabel('energy in kWh')
+ax2.set_title('energy consumption and production on scale : {scale}'.format(scale=sp_code))
+
+ax2.legend(loc='upper right')
