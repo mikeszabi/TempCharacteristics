@@ -27,7 +27,10 @@ price_electric=1
 df_meter_data=pd.read_csv(csv_export_url,sep=',',error_bad_lines=False)
 # cols=df_scale_data.columns
 
+df_meter_data=df_meter_data.iloc[:,0:8]
 df_meter_data.columns=['Date','Gas','ElectricIn','ElectricOut','Solar','Water','Change','MeterageAtChange']
+df_meter_data.dropna(subset=['Date'],inplace=True)
+
 df_meter_data['Date2']=pd.to_datetime(df_meter_data['Date'], infer_datetime_format=True)
 
 ### spot METER replacement
@@ -42,8 +45,6 @@ for i in ind_gmeter_change:
     df_meter_data.loc[i+1:,'Gas']+=df_meter_data.iloc[i].MeterageAtChange
 
 #### UPSAMPLE 
-
-df_meter_resample_data=df_meter_data.copy()
 
 df_meter_hf=df_meter_data[['Date2','Gas','ElectricIn','ElectricOut','Solar']]
 df_meter_hf=df_meter_hf.set_index('Date2')
@@ -74,9 +75,11 @@ df_meter_diff=df_meter_diff[0:-1]
 fig2, ax2 = plt.subplots()
 
 #ax2.plot(df_meter_diff.index,df_meter_diff['ElectricIn'],color='yellow',label='Electricity Consumed')
-ax2.plot(df_meter_diff.index,df_meter_diff['ElectricIn']+df_meter_diff['Solar']-df_meter_diff['ElectricOut'],color='orange',label='Electricity Consumed')
+#ax2.plot(df_meter_diff.index,df_meter_diff['ElectricIn']+df_meter_diff['Solar']-df_meter_diff['ElectricOut'],color='orange',label='Electricity Consumed')
+ax2.plot(df_meter_diff.index,df_meter_diff['ElectricIn']-df_meter_diff['ElectricOut'],color='orange',label='Electricity Consumed')
 ax2.plot(df_meter_diff.index,conv_gas*df_meter_diff['Gas'],color='black',label='Gas Consumed')
-ax2.plot(df_meter_diff.index,conv_gas*df_meter_diff['Gas']+df_meter_diff['ElectricIn']+df_meter_diff['Solar']-df_meter_diff['ElectricOut'],color='red',label='Energy Consumed')
+#ax2.plot(df_meter_diff.index,conv_gas*df_meter_diff['Gas']+df_meter_diff['ElectricIn']+df_meter_diff['Solar']-df_meter_diff['ElectricOut'],color='red',label='Energy Consumed')
+ax2.plot(df_meter_diff.index,conv_gas*df_meter_diff['Gas']+df_meter_diff['ElectricIn']-df_meter_diff['ElectricOut'],color='red',label='Energy Consumed')
 ax2.set_ylabel('energy in kWh')
 ax2.set_title('energy consumption on scale : {scale}'.format(scale=sp_code))
 
